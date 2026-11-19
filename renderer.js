@@ -107,7 +107,9 @@ vec2 warp(vec2 o) {
     float Sref = clamp(Rref, 0.5, Hd);
     float th = 2.0 * asin(min(r * mmPer / (2.0 * f), 1.0));
     float thRef = 2.0 * asin(min(Rref * mmPer / (2.0 * f), 1.0));
-    float aS = 0.70;                              // 원본(폰 카메라) 반대각 화각의 절반, 약 40°
+    // aS 가 클수록 가운데가 크게 부풀고 가장자리가 눌림. 짧은 mm 일수록 크게
+    // (가운데 확대: 8~15mm 약 2배, 18mm 약 1.6배, 30mm 약 1.1배)
+    float aS = clamp(thRef * 0.75, 0.3, 1.12);
     if (r > 0.0) q *= Sref * tan(th * aS / thRef) / tan(aS) / r;
   } else if (w < 9.5) {                // 물결 (중심에서 퍼지는 동심원)
     if (r > 0.0) q += q / r * (0.022 * k * sin(r * 55.0) * exp(-r * 1.3));
