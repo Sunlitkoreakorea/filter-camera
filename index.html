@@ -8,12 +8,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="필터 카메라">
-<meta name="description" content="13가지 필터를 실시간으로 입혀 찍고, 찍은 뒤에도 필터를 바꿀 수 있는 웹 카메라.">
+<meta name="description" content="볼록, 소용돌이, 어안 같은 왜곡 효과 8가지와 색 필터 13가지를 실시간으로 입혀 찍는 웹 카메라.">
 <title>필터 카메라</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
-<link rel="stylesheet" href="style.css?v=1">
+<link rel="stylesheet" href="style.css?v=2">
 </head>
 <body data-mode="camera">
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -26,11 +26,13 @@
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V4.5h5V7M6 7l1 13h10l1-13M10 11v5.5M14 11v5.5"/></symbol>
   <symbol id="i-save" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-warp" viewBox="0 0 24 24"><path d="M4.5 4.5Q12 1.5 19.5 4.5Q22.5 12 19.5 19.5Q12 22.5 4.5 19.5Q1.5 12 4.5 4.5Z"/><circle cx="12" cy="12" r="3.2"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
 </svg>
 
 <div id="app">
   <header class="bar top cam-only">
+    <button class="ic warpbtn" aria-label="왜곡 효과"><svg><use href="#i-warp"/></svg></button>
     <button id="bStrip" class="ic on" aria-label="필터 줄"><svg><use href="#i-filters"/></svg></button>
     <button id="bRatio" class="ic txt" aria-label="비율">4:3</button>
     <button id="bTimer" class="ic" aria-label="타이머"><svg><use href="#i-timer"/></svg><b class="badge"></b></button>
@@ -39,6 +41,7 @@
   <header class="bar top edit-only">
     <button id="bBack" class="ic" aria-label="사진첩으로"><svg><use href="#i-back"/></svg></button>
     <span class="sp"></span>
+    <button class="ic warpbtn" aria-label="왜곡 효과"><svg><use href="#i-warp"/></svg></button>
     <button id="bDelete" class="ic" aria-label="지우기"><svg><use href="#i-trash"/></svg></button>
     <button id="bSave" class="ic" aria-label="저장"><svg><use href="#i-save"/></svg></button>
   </header>
@@ -48,6 +51,7 @@
       <canvas id="view"></canvas>
       <div id="grid" hidden></div>
       <div id="flash"></div>
+      <div id="warps" hidden></div>
       <div id="fname"></div>
     </div>
     <div id="count"></div>
@@ -77,6 +81,6 @@
 </section>
 
 <video id="video" playsinline muted autoplay></video>
-<script type="module" src="app.js?v=1"></script>
+<script type="module" src="app.js?v=2"></script>
 </body>
 </html>

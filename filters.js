@@ -128,3 +128,18 @@ export function buildLutAtlas() {
   });
   return { data, width: W, height: H };
 }
+
+// 왜곡 효과 (순서 = 셰이더의 번호). 화면을 끌면 효과 중심이 따라 움직인다.
+export const WARPS = [
+  { id: 'none', name: '원본' },
+  { id: 'bulge', name: '볼록' },
+  { id: 'dent', name: '오목' },
+  { id: 'twirl', name: '소용돌이' },
+  { id: 'squeeze', name: '쥐어짜기' },
+  { id: 'stretch', name: '늘이기' },
+  { id: 'mirror', name: '거울' },
+  { id: 'tunnel', name: '빛의 터널' },
+  { id: 'fisheye', name: '어안' },
+];
+// 3×3 격자에 놓는 순서 (가운데가 원본)
+export const WARP_GRID = [1, 2, 3, 4, 0, 5, 6, 7, 8];
