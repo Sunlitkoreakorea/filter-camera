@@ -1,6 +1,6 @@
-import { FILTERS, WARPS, WARP_GRID } from './filters.js?v=2';
-import { Renderer } from './renderer.js?v=2';
-import { store, newId } from './store.js?v=2';
+import { FILTERS, WARPS, WARP_PAGES } from './filters.js?v=3';
+import { Renderer } from './renderer.js?v=3';
+import { store, newId } from './store.js?v=3';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -27,7 +27,10 @@ const TIMERS = [0, 3, 10];
 const idxOf = id => Math.max(0, FILTERS.findIndex(f => f.id === id));
 const widxOf = id => Math.max(0, WARPS.findIndex(w => w.id === id));
 const amountFor = i => settings.amounts[FILTERS[i].id] ?? 1;
-const warpAmtFor = i => settings.warpAmts[WARPS[i].id] ?? 1;
+const warpAmtFor = i => settings.warpAmts[WARPS[i].id] ?? WARPS[i].def ?? 1;
+// 어안처럼 mm 로 고르는 효과: 세기(0~1) <-> 초점거리
+const mmOf = (i, a) => { const [lo, hi] = WARPS[i].mm; return Math.round(hi - (hi - lo) * a); };
+const amtOfMm = (i, mm) => { const [lo, hi] = WARPS[i].mm; return (hi - mm) / (hi - lo); };
 
 const state = {
   mode: 'camera',            // camera | album | edit
@@ -36,7 +39,7 @@ const state = {
   stream: null, camReady: false, mirror: false,
   list: [],
   editRec: null, editBmp: null, editFilter: 0, editAmount: 1, editWarp: 0, editWarpAmt: 1, editCenter: MID(),
-  gridOpen: false,
+  gridOpen: false, gridPage: 0,
   amtTarget: 'color',        // 세기 바가 조절하는 것: color | warp
   timerId: null,
 };
@@ -63,13 +66,20 @@ const thumbs = FILTERS.map((f, i) => {
   return { el: b, canvas: c, ctx: c.getContext('2d') };
 });
 
-const warpBtns = WARP_GRID.map(wi => {
-  const b = document.createElement('button');
-  b.dataset.w = wi;
-  b.textContent = WARPS[wi].name;
-  warpsEl.appendChild(b);
-  return b;
+// 격자: 칸 9개 + 아래 페이지 점
+const warpTiles = document.createElement('div');
+warpTiles.className = 'wtiles';
+const warpBtns = Array.from({ length: 9 }, () => warpTiles.appendChild(document.createElement('button')));
+const pageBar = document.createElement('div');
+pageBar.className = 'wpages';
+const pageDots = WARP_PAGES.map((_, p) => {
+  const d = document.createElement('button');
+  d.setAttribute('aria-label', `${p + 1}쪽`);
+  d.onclick = () => setGridPage(p);
+  return pageBar.appendChild(d);
 });
+warpsEl.append(warpTiles, pageBar);
+const PAGE_BAR = 28;   // 페이지 점 띠 높이(px)
 
 const getER = () => (ER ||= new Renderer(document.createElement('canvas'), { preserve: true }));
 
@@ -151,15 +161,29 @@ function setWarp(i) {
     saveSettings();
   }
   showName(WARPS[i].name);
+  if (state.amtTarget === 'warp') amountEl.hidden = true;
   syncWarpUI();
   requestDraw();
 }
 function syncWarpUI() {
   const w = curWarp();
-  warpBtns.forEach(b => b.classList.toggle('sel', +b.dataset.w === w));
+  WARP_PAGES[state.gridPage].forEach((wi, k) => {
+    const b = warpBtns[k];
+    b.dataset.w = wi;
+    b.textContent = WARPS[wi].name;
+    b.classList.toggle('sel', wi === w);
+  });
+  pageDots.forEach((d, p) => d.classList.toggle('on', p === state.gridPage));
   $$('.warpbtn').forEach(b => b.classList.toggle('on', w !== 0 || state.gridOpen));
 }
+function setGridPage(p) {
+  state.gridPage = (p + WARP_PAGES.length) % WARP_PAGES.length;
+  syncWarpUI();
+  requestDraw();
+}
 function openGrid() {
+  const w = curWarp();
+  if (w) state.gridPage = Math.max(0, WARP_PAGES.findIndex(pg => pg.includes(w)));
   state.gridOpen = true;
   warpsEl.hidden = false;
   amountEl.hidden = true;
@@ -174,9 +198,22 @@ function closeGrid() {
   requestDraw();
 }
 $$('.warpbtn').forEach(b => b.addEventListener('click', () => (state.gridOpen ? closeGrid() : openGrid())));
-warpsEl.addEventListener('click', e => {
+// 격자를 좌우로 밀면 페이지 넘기기
+let gridSwipe = null, gridSwiped = 0;
+warpsEl.addEventListener('pointerdown', e => { gridSwipe = { x: e.clientX, y: e.clientY }; });
+warpsEl.addEventListener('pointerup', e => {
+  if (!gridSwipe) return;
+  const dx = e.clientX - gridSwipe.x, dy = e.clientY - gridSwipe.y;
+  gridSwipe = null;
+  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    gridSwiped = performance.now();
+    setGridPage(state.gridPage + (dx < 0 ? 1 : -1));
+  }
+});
+warpsEl.addEventListener('pointercancel', () => { gridSwipe = null; });
+warpTiles.addEventListener('click', e => {
   const b = e.target.closest('button');
-  if (!b) return;
+  if (!b || performance.now() - gridSwiped < 300) return;
   const w = +b.dataset.w;
   const again = w === curWarp();
   if (!again) setWarp(w);
@@ -194,13 +231,22 @@ function toggleAmount(target, forceOpen) {
   syncAmountUI();
 }
 function syncAmountUI() {
+  const w = curWarp(), mm = state.amtTarget === 'warp' && WARPS[w].mm;
+  if (mm) {
+    const v = mmOf(w, curWarpAmt());
+    amt.min = mm[0]; amt.max = mm[1]; amt.value = v;
+    amtv.textContent = v + 'mm';
+    amt.style.setProperty('--p', ((v - mm[0]) / (mm[1] - mm[0]) * 100) + '%');
+    return;
+  }
   const v = Math.round((state.amtTarget === 'warp' ? curWarpAmt() : curAmount()) * 100);
-  amt.value = v;
+  amt.min = 0; amt.max = 100; amt.value = v;
   amtv.textContent = v;
   amt.style.setProperty('--p', v + '%');
 }
 amt.addEventListener('input', () => {
-  const a = amt.value / 100;
+  const mmW = state.amtTarget === 'warp' && WARPS[curWarp()].mm ? curWarp() : 0;
+  const a = mmW ? amtOfMm(mmW, +amt.value) : amt.value / 100;
   if (state.amtTarget === 'warp') {
     if (isEdit()) { state.editWarpAmt = a; scheduleEditSave(); }
     else { settings.warpAmts[WARPS[state.camWarp].id] = a; saveSettings(); }
@@ -208,8 +254,7 @@ amt.addEventListener('input', () => {
     if (isEdit()) { state.editAmount = a; scheduleEditSave(); }
     else { settings.amounts[FILTERS[state.camFilter].id] = a; saveSettings(); }
   }
-  amtv.textContent = amt.value;
-  amt.style.setProperty('--p', amt.value + '%');
+  syncAmountUI();
   requestDraw();
 });
 
@@ -255,10 +300,10 @@ const stripVisible = () => isEdit() || settings.strip;
 
 // 3×3 격자: CSS 격자(간격 2px)와 같은 자리에 칸마다 다른 왜곡을 그린다
 function drawGrid(base) {
-  const W = R.canvas.width, H = R.canvas.height, g = Math.round(2 * W / frameEl.clientWidth);
-  const tw = (W - 2 * g) / 3, th = (H - 2 * g) / 3, cw = curWarp();
+  const W = R.canvas.width, H = R.canvas.height, sc = W / frameEl.clientWidth, g = Math.round(2 * sc);
+  const tw = (W - 2 * g) / 3, th = (H - Math.round(PAGE_BAR * sc) - 2 * g) / 3, cw = curWarp();
   R.clear();
-  WARP_GRID.forEach((wi, k) => {
+  WARP_PAGES[state.gridPage].forEach((wi, k) => {
     const col = k % 3, row = (k / 3) | 0;
     const x = Math.round(col * (tw + g)), y = Math.round(row * (th + g));
     const vp = { x, y, w: Math.round((col + 1) * (tw + g) - g) - x, h: Math.round((row + 1) * (th + g) - g) - y };
@@ -732,7 +777,7 @@ $('#bSave').addEventListener('click', async () => {
 let ptr = null;
 stage.addEventListener('pointerdown', e => {
   if (state.gridOpen || e.target.closest('#amount, #msg')) return;
-  ptr = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, moved: false, hold: null, drag: curWarp() !== 0 };
+  ptr = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, moved: false, hold: null, drag: !!WARPS[curWarp()].c };
   if (ptr.drag) { try { stage.setPointerCapture(e.pointerId); } catch {} }
   if (isEdit()) ptr.hold = setTimeout(() => { showOriginal = true; requestDraw(); }, 220);
 });
@@ -802,7 +847,11 @@ $('#bGrid').addEventListener('click', () => {
 addEventListener('keydown', e => {
   if (e.target.matches('input') && e.key !== 'Escape') return;
   if (state.mode === 'album') { if (e.key === 'Escape') setMode('camera'); return; }
-  if (e.key === 'Escape' && state.gridOpen) { closeGrid(); return; }
+  if (state.gridOpen) {
+    if (e.key === 'Escape') closeGrid();
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') setGridPage(state.gridPage + (e.key === 'ArrowRight' ? 1 : -1));
+    if (e.key === 'Escape' || e.key.startsWith('Arrow')) return;
+  }
   if (e.key === 'ArrowRight') setFilter(curFilter() + 1, 'key');
   else if (e.key === 'ArrowLeft') setFilter(curFilter() - 1, 'key');
   else if (e.key === 'Escape' && isEdit()) backToAlbum();

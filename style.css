@@ -110,7 +110,7 @@ body[data-mode="edit"] .cam-only { display: none !important; }
   background: rgba(20, 20, 20, .6);
   -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
 }
-#amtv { width: 28px; text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--accent); }
+#amtv { min-width: 28px; text-align: right; white-space: nowrap; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--accent); }
 #amt {
   --p: 100%;
   flex: 1; height: 24px; margin: 0; background: transparent;
@@ -207,14 +207,25 @@ body[data-mode="edit"] #strip { margin-bottom: 14px; }
 /* 왜곡 효과 3×3 격자 (그림은 캔버스가 그리고, 여기는 누르는 칸과 이름만) */
 #warps {
   position: absolute; inset: 0; z-index: 1;
+  display: flex; flex-direction: column;
+}
+.wtiles {
+  flex: 1; min-height: 0;
   display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 2px;
 }
-#warps button {
+.wpages { flex: 0 0 28px; display: flex; align-items: center; justify-content: center; gap: 4px; }
+.wpages button { width: 24px; height: 24px; display: grid; place-items: center; }
+.wpages button::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%;
+  background: rgba(255, 255, 255, .35); transition: background-color .15s;
+}
+.wpages button.on::before { background: #fff; }
+.wtiles button {
   position: relative; display: flex; align-items: flex-end; justify-content: center;
   padding-bottom: 6px;
   font-size: 12px; font-weight: 600; letter-spacing: .02em;
   text-shadow: 0 1px 3px rgba(0, 0, 0, .8);
 }
-#warps button.sel { box-shadow: inset 0 0 0 2.5px var(--accent); color: var(--accent); }
-@media (hover: hover) { #warps button:hover { background: rgba(255, 255, 255, .06); } }
+.wtiles button.sel { box-shadow: inset 0 0 0 2.5px var(--accent); color: var(--accent); }
+@media (hover: hover) { .wtiles button:hover { background: rgba(255, 255, 255, .06); } }
 #stage.dragging { cursor: grabbing; }
