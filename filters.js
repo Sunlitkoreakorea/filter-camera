@@ -191,9 +191,19 @@ export const WARPS = [
   { id: 'popart', name: '팝아트' },
   { id: 'comic', name: '만화' },
   { id: 'sketch', name: '스케치' },
+  // 얼굴 효과 (얼굴을 찾아서 그 부분만 바꿈, faces.js 의 FX)
+  { id: 'bigeyes', name: '왕눈이', face: 'bigeyes' },
+  { id: 'slim', name: '작은 얼굴', face: 'slim' },
+  { id: 'alien', name: '외계인', face: 'alien' },
+  { id: 'bignose', name: '큰 코', face: 'bignose' },
+  { id: 'smallnose', name: '작은 코', face: 'smallnose' },
+  { id: 'cheeks', name: '볼 빵빵', face: 'cheeks' },
+  { id: 'bigmouth', name: '입 크게', face: 'bigmouth' },
+  { id: 'longface', name: '긴 얼굴', face: 'longface' },
 ];
 // 3×3 격자 페이지 (가운데가 원본)
 export const WARP_PAGES = [
   [1, 2, 3, 4, 0, 5, 6, 7, 8],
   [9, 10, 11, 12, 0, 13, 14, 15, 16],
+  [17, 18, 19, 20, 0, 21, 22, 23, 24],
 ];

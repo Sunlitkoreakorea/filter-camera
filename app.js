@@ -1,5 +1,6 @@
-import { FILTERS, WARPS, WARP_PAGES } from './filters.js?v=8';
-import { Renderer } from './renderer.js?v=11';
+import { FILTERS, WARPS, WARP_PAGES } from './filters.js?v=9';
+import { Renderer } from './renderer.js?v=13';
+import { faceReady, loadFace, detectVideo, detectImage, pickFaces, smoothFaces } from './faces.js?v=2';
 import { store, newId } from './store.js?v=3';
 
 const $ = s => document.querySelector(s);
@@ -43,6 +44,7 @@ const state = {
   list: [],
   editRec: null, editBmp: null, editFilter: 0, editAmount: 1, editWarp: 0, editWarpAmt: 1, editCenter: MID(),
   gridOpen: false, gridPage: 0,
+  faces: null, editFaces: null,   // 찾은 얼굴 점 (화면 좌표)
   amtTarget: 'color',        // 세기 바가 조절하는 것: color | warp
   timerId: null,
 };
@@ -93,7 +95,36 @@ const curAmount = () => (isEdit() ? state.editAmount : amountFor(state.camFilter
 const curWarp = () => (isEdit() ? state.editWarp : state.camWarp);
 const curWarpAmt = () => (isEdit() ? state.editWarpAmt : warpAmtFor(state.camWarp));
 const curCenter = () => (isEdit() ? state.editCenter : state.camCenter);
-const curLook = () => ({ filter: curFilter(), amount: curAmount(), warp: curWarp(), warpAmt: curWarpAmt(), center: curCenter() });
+const curFaces = () => (isEdit() ? state.editFaces : state.faces);
+const curLook = () => ({ filter: curFilter(), amount: curAmount(), warp: curWarp(), warpAmt: curWarpAmt(), center: curCenter(), faces: curFaces() });
+
+/* ---------- 얼굴 인식 (얼굴 효과를 고르거나 격자 3쪽을 볼 때만 켜짐) ---------- */
+const FACE_PAGE = WARP_PAGES.findIndex(pg => pg.some(w => WARPS[w].face));
+const faceActive = () => !!WARPS[curWarp()].face || (state.gridOpen && state.gridPage === FACE_PAGE);
+let faceLoadShown = false;
+function ensureFaceModel() {
+  if (faceReady()) return true;
+  if (!faceLoadShown) { faceLoadShown = true; showStatus('얼굴 인식 준비 중'); }
+  loadFace().then(() => { hideStatus(); requestDraw(); if (isEdit()) findEditFaces(); })
+    .catch(e => { console.error(e); faceLoadShown = false; showName('얼굴 인식을 불러오지 못했어요'); });
+  return false;
+}
+let editFaceBusy = false;
+async function findEditFaces() {
+  if (!isEdit() || !state.editBmp || state.editFaces || editFaceBusy || !faceActive()) return;
+  if (!faceReady()) { ensureFaceModel(); return; }
+  editFaceBusy = true;
+  const rec = state.editRec;
+  try {
+    const found = pickFaces(await detectImage(state.editBmp));
+    if (state.editRec !== rec) return;
+    state.editFaces = found;
+    if (!found.length) showName('얼굴을 찾지 못했어요');
+    scheduleEditSave();
+    requestDraw();
+  } catch (e) { console.error(e); }
+  finally { editFaceBusy = false; }
+}
 
 /* ---------- 색 필터 고르기 ---------- */
 function setFilter(i, from) {
@@ -144,6 +175,13 @@ stripEl.addEventListener('wheel', e => {
 }, { passive: false });
 
 let nameTimer;
+function showStatus(text) {   // 사라지지 않는 안내 (얼굴 인식 준비 중)
+  const el = $('#fname');
+  clearTimeout(nameTimer);
+  el.textContent = text;
+  el.classList.add('show');
+}
+function hideStatus() { $('#fname').classList.remove('show'); }
 function showName(text) {
   const el = $('#fname');
   el.textContent = text;
@@ -165,6 +203,7 @@ function setWarp(i) {
   }
   showName(WARPS[i].name);
   if (state.amtTarget === 'warp') amountEl.hidden = true;
+  if (WARPS[i].face) { ensureFaceModel(); findEditFaces(); }
   syncWarpUI();
   requestDraw();
 }
@@ -181,6 +220,7 @@ function syncWarpUI() {
 }
 function setGridPage(p) {
   state.gridPage = (p + WARP_PAGES.length) % WARP_PAGES.length;
+  if (state.gridPage === FACE_PAGE) { ensureFaceModel(); findEditFaces(); }
   syncWarpUI();
   requestDraw();
 }
@@ -294,7 +334,7 @@ new ResizeObserver(() => layout()).observe(stage);
 video.addEventListener('resize', () => layout());
 
 /* ---------- 그리기 ---------- */
-let drawQueued = false, seed = 0, frameNo = 0, showOriginal = false;
+let drawQueued = false, seed = 0, frameNo = 0, showOriginal = false, faceNext = 0;
 function requestDraw() {
   if (drawQueued) return;
   drawQueued = true;
@@ -323,12 +363,19 @@ function drawNow() {
     if (Math.abs(crop.aspect - lastAspect) > 1e-3) layout();
     if (!R.upload(video)) return;
     if (++frameNo % 2 === 0) seed = Math.random();
-    const base = { filter: state.camFilter, amount: curAmount(), crop, mirror: state.mirror, seed };
+    // 얼굴 찾기: 오래 걸리는 기기에선 몇 프레임 건너뛰고, 화면은 마지막 얼굴 위치로 계속 그림
+    if (faceActive() && ensureFaceModel() && performance.now() >= faceNext) {
+      const t0 = performance.now();
+      const found = detectVideo(video);
+      faceNext = t0 + (performance.now() - t0) * 1.5;
+      if (found) state.faces = smoothFaces(state.faces, pickFaces(found, crop, state.mirror));
+    }
+    const base = { filter: state.camFilter, amount: curAmount(), crop, mirror: state.mirror, seed, faces: state.faces };
     if (state.gridOpen) drawGrid(base);
     else R.draw({ ...base, warp: state.camWarp, warpAmt: curWarpAmt(), center: state.camCenter });
     if (stripVisible()) drawThumbs(video, vw, vh, crop, state.mirror);
   } else if (isEdit() && state.editBmp) {
-    if (state.gridOpen) drawGrid({ filter: state.editFilter, amount: state.editAmount, seed: 0.37 });
+    if (state.gridOpen) drawGrid({ filter: state.editFilter, amount: state.editAmount, seed: 0.37, faces: state.editFaces });
     else if (showOriginal) R.draw({ filter: 0 });
     else R.draw({ ...curLook(), seed: 0.37 });
   }
@@ -509,14 +556,14 @@ async function capture() {
     if (state.mirror) { ctx.translate(W, 0); ctx.scale(-1, 1); }
     ctx.drawImage(video, crop.x * vw, crop.y * vh, W, H, 0, 0, W, H);
     flash();
-    const look = { ...curLook(), center: [...state.camCenter] }, created = Date.now();
+    const look = { ...curLook(), center: [...state.camCenter], faces: state.faces && JSON.parse(JSON.stringify(state.faces)) }, created = Date.now();
     const thumbP = makeThumb(oc, look);
     const outP = isIOS ? null : renderFull(oc, look);
     const original = await toBlob(oc, 'image/jpeg', 0.95);
     const rec = {
       id: newId(), created, w: W, h: H,
       filter: FILTERS[look.filter].id, amount: look.amount,
-      warp: WARPS[look.warp].id, warpAmt: look.warpAmt, center: look.center, fish5: true,
+      warp: WARPS[look.warp].id, warpAmt: look.warpAmt, center: look.center, fish5: true, faces: look.faces || null,
       original, thumb: await thumbP,
     };
     await store.put(rec);
@@ -691,6 +738,7 @@ async function openEditor(id) {
   state.editWarpAmt = rec.warpAmt ?? 1;
   if (rec.warp === 'fisheye' && !rec.fish5 && rec.warpAmt !== undefined) state.editWarpAmt = rec.warpAmt / 2;   // ×1~×3 시절 기록
   state.editCenter = rec.center ? [...rec.center] : MID();
+  state.editFaces = rec.faces || null;
   pendingShare = null;
   $('#bSave').classList.remove('done');
   setMode('edit');
@@ -701,6 +749,7 @@ async function openEditor(id) {
   syncAmountUI();
   layout();
   drawThumbs(bmp, bmpW(bmp), bmpH(bmp), FULL, false);
+  findEditFaces();
 }
 
 let editSaveT = null;
@@ -717,13 +766,14 @@ function flushEditSave() {
   editSaveT = null;
   const rec = state.editRec, bmp = state.editBmp;
   if (!rec || !bmp) return;
-  const look = { filter: state.editFilter, amount: state.editAmount, warp: state.editWarp, warpAmt: state.editWarpAmt, center: [...state.editCenter] };
+  const look = { filter: state.editFilter, amount: state.editAmount, warp: state.editWarp, warpAmt: state.editWarpAmt, center: [...state.editCenter], faces: state.editFaces };
   rec.filter = FILTERS[look.filter].id;
   rec.amount = look.amount;
   rec.warp = WARPS[look.warp].id;
   rec.warpAmt = look.warpAmt;
   rec.center = look.center;
   rec.fish5 = true;
+  rec.faces = state.editFaces || null;
   store.put(rec).catch(console.error);            // 고른 효과는 바로 저장, 사진첩 칸 그림은 뒤따라
   makeThumb(bmp, look).then(async thumb => {
     if (deletedIds.has(rec.id)) return;

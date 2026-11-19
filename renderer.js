@@ -1,5 +1,6 @@
 // WebGL 렌더러: 좌표 비틀기(왜곡) -> 원본 텍스처 -> 3D LUT(색 필터) -> 비네팅/입자 -> 세기 섞기
-import { FILTERS, WARPS, N, buildLutAtlas } from './filters.js?v=8';
+import { FILTERS, WARPS, N, buildLutAtlas } from './filters.js?v=9';
+import { MAXP, buildFacePrims } from './faces.js?v=2';
 
 // 어안 안쪽 3차식 계수: g(0)=0, g'(0)=1/M (가운데 M배), t0=0.45 에서 바깥 식 0.75t+1.1t³ 과 값/기울기가 맞음
 const T0 = 0.45, G0 = 0.75 * T0 + 1.1 * T0 ** 3, G1 = 0.75 + 3.3 * T0 * T0;
@@ -44,6 +45,9 @@ uniform float uWarp;
 uniform float uWarpAmt;
 uniform vec2 uCenter;
 uniform vec3 uFish;
+uniform vec4 uFA[${MAXP}];    // 얼굴 효과 원: 중심(짧은 변 = 1 단위), 반지름, 부풀리기
+uniform vec4 uFB[${MAXP / 2}];    // 밀기 방향 (원 2개씩)
+uniform float uFN;
 const float N = ${N.toFixed(1)};
 
 vec3 lut(vec3 c) {
@@ -127,6 +131,18 @@ vec2 warp(vec2 o) {
     q = (floor(q / cell) + 0.5) * cell;
   } else if (w > 13.5 && w < 14.5) {   // 팝아트: 화면을 2×2로 나눠 같은 그림 4장
     return fract(o * 2.0);
+  } else if (w > 16.5) {               // 얼굴 효과: 눈/코/입/턱 둘레를 부풀리거나 줄이거나 밀기
+    vec2 p = o * uFrame, tot = vec2(0.0);
+    for (int i = 0; i < ${MAXP}; i++) {
+      if (float(i) >= uFN) break;
+      vec4 a = uFA[i];
+      vec4 b = uFB[i / 2];
+      vec2 v = mod(float(i), 2.0) < 0.5 ? b.xy : b.zw;
+      vec2 d = p - a.xy;
+      float t = length(d) / a.z;
+      if (t < 1.0) { float wt = 1.0 - t * t; wt *= wt; tot += (d * a.w + v) * wt; }
+    }
+    return (p - tot) / uFrame;
   }
   return uCenter + q / uFrame;
 }
@@ -194,7 +210,7 @@ void main() {
   vec3 src = srcAt(u);
   float w = floor(uWarp + 0.5);
   if (w > 7.5 && w < 8.5 && (u.x < 0.0 || u.x > 1.0 || u.y < 0.0 || u.y > 1.0)) src = vec3(0.0);
-  if (w > 11.5 && uWarpAmt > 0.0) src = mix(src, stylize(src, clamp(u, 0.0, 1.0)), uWarpAmt);
+  if (w > 11.5 && w < 16.5 && uWarpAmt > 0.0) src = mix(src, stylize(src, clamp(u, 0.0, 1.0)), uWarpAmt);
   vec3 c = lut(src);
   if (uVig > 0.0) {
     float d = length(vOut - 0.5) * 1.41421;
@@ -210,7 +226,7 @@ void main() {
   gl_FragColor = vec4(clamp(mix(src, c, uAmount), 0.0, 1.0), 1.0);
 }`;
 
-const UNIFORMS = ['uSrc', 'uMirror', 'uImg', 'uLut', 'uRow', 'uRows', 'uAmount', 'uVig', 'uGrain', 'uSeed', 'uFrame', 'uWarp', 'uWarpAmt', 'uCenter', 'uFish'];
+const UNIFORMS = ['uSrc', 'uMirror', 'uImg', 'uLut', 'uRow', 'uRows', 'uAmount', 'uVig', 'uGrain', 'uSeed', 'uFrame', 'uWarp', 'uWarpAmt', 'uCenter', 'uFish', 'uFA', 'uFB', 'uFN'];
 
 export class Renderer {
   constructor(canvas, { preserve = false } = {}) {
@@ -272,6 +288,8 @@ export class Renderer {
     gl.uniform1f(this.u.uRows, FILTERS.length);
     gl.clearColor(0, 0, 0, 1);
     this.maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    this.fa = new Float32Array(MAXP * 4);
+    this.fb = new Float32Array(MAXP * 2);
     this.ok = true;
   }
 
@@ -302,7 +320,7 @@ export class Renderer {
   // vp: 캔버스 안 그릴 위치(px, 왼쪽 위 기준), crop: 원본에서 쓸 영역(0~1)
   // warp: WARPS 번호, warpAmt: 0~1, center: [x, y] 화면 좌표 0~1
   draw({ filter = 0, amount = 1, crop = { x: 0, y: 0, w: 1, h: 1 }, mirror = false, seed = 0, vp = null,
-         warp = 0, warpAmt = 1, center = [0.5, 0.5] }) {
+         warp = 0, warpAmt = 1, center = [0.5, 0.5], faces = null }) {
     if (!this.ok) return;
     const gl = this.gl, f = FILTERS[filter].p, u = this.u;
     const W = this.canvas.width, H = this.canvas.height;
@@ -324,6 +342,10 @@ export class Renderer {
       gl.uniform3f(u.uFish, ...fishCoef(wd.mag[0] + (wd.mag[1] - wd.mag[0]) * warpAmt));
       gl.uniform1f(u.uWarpAmt, 1);
     } else gl.uniform1f(u.uWarpAmt, warpAmt);
+    // 얼굴 효과: 찾은 얼굴 점에서 효과 원들을 계산해 넘김
+    const fn = wd && wd.face ? buildFacePrims(faces, wd.face, warpAmt, v.w / m, v.h / m, this.fa, this.fb) : 0;
+    if (fn) { gl.uniform4fv(u.uFA, this.fa); gl.uniform4fv(u.uFB, this.fb); }
+    gl.uniform1f(u.uFN, fn);
     gl.uniform2f(u.uCenter, center[0], center[1]);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
