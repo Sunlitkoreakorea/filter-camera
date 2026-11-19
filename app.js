@@ -1,5 +1,5 @@
-import { FILTERS, WARPS, WARP_PAGES } from './filters.js?v=6';
-import { Renderer } from './renderer.js?v=9';
+import { FILTERS, WARPS, WARP_PAGES } from './filters.js?v=7';
+import { Renderer } from './renderer.js?v=10';
 import { store, newId } from './store.js?v=3';
 
 const $ = s => document.querySelector(s);
@@ -19,6 +19,9 @@ const settings = Object.assign(
   (() => { try { return JSON.parse(localStorage.getItem(LS)) || {}; } catch { return {}; } })()
 );
 settings.warpAmts ||= {};
+// 어안 배수 범위가 ×1~×3 에서 ×1~×5 로 넓어짐: 예전에 저장한 세기를 같은 배수로 옮김 (배수 = 1 + 2a → a/2)
+if (!settings.fish5 && settings.warpAmts.fisheye !== undefined) settings.warpAmts.fisheye /= 2;
+settings.fish5 = true;
 const saveSettings = () => { try { localStorage.setItem(LS, JSON.stringify(settings)); } catch {} };
 
 const RATIOS = { '4:3': 4 / 3, '1:1': 1, '16:9': 16 / 9 };
@@ -513,7 +516,7 @@ async function capture() {
     const rec = {
       id: newId(), created, w: W, h: H,
       filter: FILTERS[look.filter].id, amount: look.amount,
-      warp: WARPS[look.warp].id, warpAmt: look.warpAmt, center: look.center,
+      warp: WARPS[look.warp].id, warpAmt: look.warpAmt, center: look.center, fish5: true,
       original, thumb: await thumbP,
     };
     await store.put(rec);
@@ -660,7 +663,7 @@ async function importFiles(files) {
       bmp.close?.();
       const thumbP = makeThumb(c, { filter: 0 });
       const rec = { id: newId(), created: f.lastModified || Date.now(), w: W, h: H,
-        filter: 'original', amount: 1, warp: 'none', warpAmt: 1, center: MID(),
+        filter: 'original', amount: 1, warp: 'none', warpAmt: 1, center: MID(), fish5: true,
         original: await toBlob(c, 'image/jpeg', 0.95), thumb: await thumbP };
       await store.put(rec);
       last = rec.id; done++;
@@ -686,6 +689,7 @@ async function openEditor(id) {
   state.editAmount = rec.amount ?? 1;
   state.editWarp = widxOf(rec.warp);
   state.editWarpAmt = rec.warpAmt ?? 1;
+  if (rec.warp === 'fisheye' && !rec.fish5 && rec.warpAmt !== undefined) state.editWarpAmt = rec.warpAmt / 2;   // ×1~×3 시절 기록
   state.editCenter = rec.center ? [...rec.center] : MID();
   pendingShare = null;
   $('#bSave').classList.remove('done');
@@ -719,6 +723,7 @@ function flushEditSave() {
   rec.warp = WARPS[look.warp].id;
   rec.warpAmt = look.warpAmt;
   rec.center = look.center;
+  rec.fish5 = true;
   store.put(rec).catch(console.error);            // 고른 효과는 바로 저장, 사진첩 칸 그림은 뒤따라
   makeThumb(bmp, look).then(async thumb => {
     if (deletedIds.has(rec.id)) return;

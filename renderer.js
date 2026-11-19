@@ -1,5 +1,5 @@
 // WebGL 렌더러: 좌표 비틀기(왜곡) -> 원본 텍스처 -> 3D LUT(색 필터) -> 비네팅/입자 -> 세기 섞기
-import { FILTERS, WARPS, N, buildLutAtlas } from './filters.js?v=6';
+import { FILTERS, WARPS, N, buildLutAtlas } from './filters.js?v=7';
 
 // 어안 안쪽 3차식 계수: g(0)=0, g'(0)=1/M (가운데 M배), t0=0.45 에서 바깥 식 0.75t+1.1t³ 과 값/기울기가 맞음
 const T0 = 0.45, G0 = 0.75 * T0 + 1.1 * T0 ** 3, G1 = 0.75 + 3.3 * T0 * T0;
