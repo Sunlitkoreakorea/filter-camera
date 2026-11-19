@@ -1,5 +1,13 @@
 // WebGL 렌더러: 좌표 비틀기(왜곡) -> 원본 텍스처 -> 3D LUT(색 필터) -> 비네팅/입자 -> 세기 섞기
-import { FILTERS, N, buildLutAtlas } from './filters.js?v=3';
+import { FILTERS, WARPS, N, buildLutAtlas } from './filters.js?v=4';
+
+// 어안: 가운데 확대 배율 M 에 맞는 곡률 a (tan(a)/a = M, M=1 이면 0)
+function fishCurve(M) {
+  if (M <= 1.0001) return 0;
+  let lo = 0, hi = 1.55;
+  for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (Math.tan(m) / m < M) lo = m; else hi = m; }
+  return (lo + hi) / 2;
+}
 
 let atlasCache = null;
 const atlas = () => (atlasCache ||= buildLutAtlas());
@@ -97,20 +105,9 @@ vec2 warp(vec2 o) {
   } else if (w < 7.5) {                // 빛의 터널
     float R = mix(1.3, 0.22, k);
     if (r > R) q *= R / r;
-  } else if (w < 8.5) {                // 어안: 등입체각 투영, 초점거리 30mm(k=0) ~ 8mm(k=1), 35mm 환산
-    float f = mix(30.0, 8.0, k);
-    float Hd = 0.5 * length(uFrame);              // 화면 반대각 (짧은 변 = 1)
-    float mmPer = 21.63 / Hd;                     // 35mm 필름 반대각 21.63mm 에 맞춤
-    float R180 = 1.41421 * f / mmPer;             // 화각 180° 원의 반지름
-    if (r > R180) return vec2(-1.0);              // 원 밖은 검정
-    float Rref = min(R180, Hd);
-    float Sref = clamp(Rref, 0.5, Hd);
-    float th = 2.0 * asin(min(r * mmPer / (2.0 * f), 1.0));
-    float thRef = 2.0 * asin(min(Rref * mmPer / (2.0 * f), 1.0));
-    // aS 가 클수록 가운데가 크게 부풀고 가장자리가 눌림. 짧은 mm 일수록 크게
-    // (가운데 확대: 8~15mm 약 2배, 18mm 약 1.6배, 30mm 약 1.1배)
-    float aS = clamp(thRef * 0.75, 0.3, 1.12);
-    if (r > 0.0) q *= Sref * tan(th * aS / thRef) / tan(aS) / r;
+  } else if (w < 8.5) {                // 어안: 모서리는 그대로, 가운데를 키우고 가장자리를 누름
+    float t = r / (0.5 * length(uFrame));       // k = 곡률 (JS가 배율에서 계산해 넘김)
+    if (r > 0.0) q *= tan(k * t) / tan(k) / t;
   } else if (w < 9.5) {                // 물결 (중심에서 퍼지는 동심원)
     if (r > 0.0) q += q / r * (0.022 * k * sin(r * 55.0) * exp(-r * 1.3));
   } else if (w < 10.5) {               // 만화경
@@ -189,10 +186,8 @@ vec3 stylize(vec3 s, vec2 u) {
 
 void main() {
   vec2 u = warp(vOut);
-  bool outside = u.x < 0.0 || u.x > 1.0 || u.y < 0.0 || u.y > 1.0;
   vec3 src = srcAt(u);
   float w = floor(uWarp + 0.5);
-  if (outside && w > 7.5 && w < 8.5) src = vec3(0.0);
   if (w > 11.5 && uWarpAmt > 0.0) src = mix(src, stylize(src, clamp(u, 0.0, 1.0)), uWarpAmt);
   vec3 c = lut(src);
   if (uVig > 0.0) {
@@ -317,7 +312,8 @@ export class Renderer {
     const m = Math.min(v.w, v.h);
     gl.uniform2f(u.uFrame, v.w / m, v.h / m);
     gl.uniform1f(u.uWarp, warp);
-    gl.uniform1f(u.uWarpAmt, warpAmt);
+    const wd = WARPS[warp];
+    gl.uniform1f(u.uWarpAmt, wd && wd.mag ? fishCurve(wd.mag[0] + (wd.mag[1] - wd.mag[0]) * warpAmt) : warpAmt);
     gl.uniform2f(u.uCenter, center[0], center[1]);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }

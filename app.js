@@ -1,5 +1,5 @@
-import { FILTERS, WARPS, WARP_PAGES } from './filters.js?v=3';
-import { Renderer } from './renderer.js?v=4';
+import { FILTERS, WARPS, WARP_PAGES } from './filters.js?v=4';
+import { Renderer } from './renderer.js?v=5';
 import { store, newId } from './store.js?v=3';
 
 const $ = s => document.querySelector(s);
@@ -28,9 +28,9 @@ const idxOf = id => Math.max(0, FILTERS.findIndex(f => f.id === id));
 const widxOf = id => Math.max(0, WARPS.findIndex(w => w.id === id));
 const amountFor = i => settings.amounts[FILTERS[i].id] ?? 1;
 const warpAmtFor = i => settings.warpAmts[WARPS[i].id] ?? WARPS[i].def ?? 1;
-// 어안처럼 mm 로 고르는 효과: 세기(0~1) <-> 초점거리
-const mmOf = (i, a) => { const [lo, hi] = WARPS[i].mm; return Math.round(hi - (hi - lo) * a); };
-const amtOfMm = (i, mm) => { const [lo, hi] = WARPS[i].mm; return (hi - mm) / (hi - lo); };
+// 어안: 세기(0~1) <-> 가운데 확대 배율. 바는 0.1배 단위 정수(10 = ×1.0)
+const magOf = (i, a) => { const [lo, hi] = WARPS[i].mag; return Math.round((lo + (hi - lo) * a) * 10); };
+const amtOfMag = (i, v) => { const [lo, hi] = WARPS[i].mag; return (v / 10 - lo) / (hi - lo); };
 
 const state = {
   mode: 'camera',            // camera | album | edit
@@ -218,8 +218,8 @@ warpTiles.addEventListener('click', e => {
   const again = w === curWarp();
   if (!again) setWarp(w);
   closeGrid();
-  // 같은 효과를 다시 누르거나, 어안처럼 mm 로 고르는 효과면 세기 바를 바로 띄움
-  if ((again && w !== 0) || (!again && WARPS[w].mm)) toggleAmount('warp', true);
+  // 같은 효과를 다시 누르거나, 어안이면 세기(확대 배율) 바를 바로 띄움
+  if ((again && w !== 0) || (!again && WARPS[w].mag)) toggleAmount('warp', true);
 });
 
 /* ---------- 세기 바 (색 필터 / 왜곡 공용) ---------- */
@@ -232,12 +232,12 @@ function toggleAmount(target, forceOpen) {
   syncAmountUI();
 }
 function syncAmountUI() {
-  const w = curWarp(), mm = state.amtTarget === 'warp' && WARPS[w].mm;
-  if (mm) {
-    const v = mmOf(w, curWarpAmt());
-    amt.min = mm[0]; amt.max = mm[1]; amt.value = v;
-    amtv.textContent = v + 'mm';
-    amt.style.setProperty('--p', ((v - mm[0]) / (mm[1] - mm[0]) * 100) + '%');
+  const w = curWarp(), mag = state.amtTarget === 'warp' && WARPS[w].mag;
+  if (mag) {
+    const v = magOf(w, curWarpAmt()), lo = mag[0] * 10, hi = mag[1] * 10;
+    amt.min = lo; amt.max = hi; amt.value = v;
+    amtv.textContent = '×' + (v / 10).toFixed(1);
+    amt.style.setProperty('--p', ((v - lo) / (hi - lo) * 100) + '%');
     return;
   }
   const v = Math.round((state.amtTarget === 'warp' ? curWarpAmt() : curAmount()) * 100);
@@ -246,8 +246,8 @@ function syncAmountUI() {
   amt.style.setProperty('--p', v + '%');
 }
 amt.addEventListener('input', () => {
-  const mmW = state.amtTarget === 'warp' && WARPS[curWarp()].mm ? curWarp() : 0;
-  const a = mmW ? amtOfMm(mmW, +amt.value) : amt.value / 100;
+  const magW = state.amtTarget === 'warp' && WARPS[curWarp()].mag ? curWarp() : 0;
+  const a = magW ? amtOfMag(magW, +amt.value) : amt.value / 100;
   if (state.amtTarget === 'warp') {
     if (isEdit()) { state.editWarpAmt = a; scheduleEditSave(); }
     else { settings.warpAmts[WARPS[state.camWarp].id] = a; saveSettings(); }
@@ -695,7 +695,7 @@ async function openEditor(id) {
   scrollStripTo(state.editFilter, 'auto');
   syncWarpUI();
   syncAmountUI();
-  if (WARPS[state.editWarp].mm) toggleAmount('warp', true);
+  if (WARPS[state.editWarp].mag) toggleAmount('warp', true);
   layout();
   drawThumbs(bmp, bmpW(bmp), bmpH(bmp), FULL, false);
 }
@@ -818,13 +818,13 @@ stage.addEventListener('pointerup', endPtr);
 stage.addEventListener('pointercancel', endPtr);
 stage.addEventListener('contextmenu', e => e.preventDefault());
 
-// 마우스 휠, ↑↓ 키로 세기 조절 (어안은 1mm씩). 위로 = 숫자 커짐
+// 마우스 휠, ↑↓ 키로 세기 조절 (어안은 0.1배씩). 위로 = 숫자 커짐
 function nudgeAmount(dir) {
   const target = curWarp() ? 'warp' : curFilter() ? 'color' : null;
   if (!target) return;
   if (amountEl.hidden || state.amtTarget !== target) toggleAmount(target, true);
-  const mm = target === 'warp' && WARPS[curWarp()].mm;
-  amt.value = mm ? clamp(+amt.value + dir, mm[0], mm[1]) : clamp(+amt.value + dir * 5, 0, 100);
+  const mag = target === 'warp' && WARPS[curWarp()].mag;
+  amt.value = mag ? clamp(+amt.value + dir, mag[0] * 10, mag[1] * 10) : clamp(+amt.value + dir * 5, 0, 100);
   amt.dispatchEvent(new Event('input'));
 }
 let stageWheel = 0;
