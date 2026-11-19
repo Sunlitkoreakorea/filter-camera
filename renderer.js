@@ -42,6 +42,7 @@ uniform vec2 uFrame;    // 짧은 변 = 1 로 맞춘 화면 비율
 uniform float uWarp;
 uniform float uWarpAmt;
 uniform vec2 uCenter;
+uniform vec3 uFish;
 const float N = ${N.toFixed(1)};
 
 vec3 lut(vec3 c) {
@@ -105,9 +106,10 @@ vec2 warp(vec2 o) {
   } else if (w < 7.5) {                // 빛의 터널
     float R = mix(1.3, 0.22, k);
     if (r > R) q *= R / r;
-  } else if (w < 8.5) {                // 어안: 모서리는 그대로, 가운데를 키우고 가장자리를 누름
-    float t = r / (0.5 * length(uFrame));       // k = 곡률 (JS가 배율에서 계산해 넘김)
-    if (r > 0.0) q *= tan(k * t) / tan(k) / t;
+  } else if (w < 8.5) {                // 어안: 원 안에 가운데를 키워 담고, 원 밖은 검정
+    if (r > uFish.x) return vec2(-1.0);         // uFish = (원 반지름, 원 끝이 가리킬 원본 반지름, 곡률)
+    float t = r / uFish.x;
+    if (r > 0.0) q *= uFish.y * (uFish.z > 0.0 ? tan(uFish.z * t) / tan(uFish.z) : t) / r;
   } else if (w < 9.5) {                // 물결 (중심에서 퍼지는 동심원)
     if (r > 0.0) q += q / r * (0.022 * k * sin(r * 55.0) * exp(-r * 1.3));
   } else if (w < 10.5) {               // 만화경
@@ -188,6 +190,7 @@ void main() {
   vec2 u = warp(vOut);
   vec3 src = srcAt(u);
   float w = floor(uWarp + 0.5);
+  if (w > 7.5 && w < 8.5 && (u.x < 0.0 || u.x > 1.0 || u.y < 0.0 || u.y > 1.0)) src = vec3(0.0);
   if (w > 11.5 && uWarpAmt > 0.0) src = mix(src, stylize(src, clamp(u, 0.0, 1.0)), uWarpAmt);
   vec3 c = lut(src);
   if (uVig > 0.0) {
@@ -204,7 +207,7 @@ void main() {
   gl_FragColor = vec4(clamp(mix(src, c, uAmount), 0.0, 1.0), 1.0);
 }`;
 
-const UNIFORMS = ['uSrc', 'uMirror', 'uImg', 'uLut', 'uRow', 'uRows', 'uAmount', 'uVig', 'uGrain', 'uSeed', 'uFrame', 'uWarp', 'uWarpAmt', 'uCenter'];
+const UNIFORMS = ['uSrc', 'uMirror', 'uImg', 'uLut', 'uRow', 'uRows', 'uAmount', 'uVig', 'uGrain', 'uSeed', 'uFrame', 'uWarp', 'uWarpAmt', 'uCenter', 'uFish'];
 
 export class Renderer {
   constructor(canvas, { preserve = false } = {}) {
@@ -312,8 +315,17 @@ export class Renderer {
     const m = Math.min(v.w, v.h);
     gl.uniform2f(u.uFrame, v.w / m, v.h / m);
     gl.uniform1f(u.uWarp, warp);
+    gl.uniform1f(u.uWarpAmt, warpAmt);
     const wd = WARPS[warp];
-    gl.uniform1f(u.uWarpAmt, wd && wd.mag ? fishCurve(wd.mag[0] + (wd.mag[1] - wd.mag[0]) * warpAmt) : warpAmt);
+    if (wd && wd.mag) {
+      // 어안: 배율이 커질수록 검은 원이 작아짐 (×1 원 없음, ×2 위아래가 잘린 원, ×3 화면 안에 다 들어오는 원)
+      // 가운데 확대는 정확히 M 배가 되도록 곡률을 고른다
+      const M = wd.mag[0] + (wd.mag[1] - wd.mag[0]) * warpAmt;
+      const Hd = 0.5 * Math.hypot(v.w / m, v.h / m);
+      const R = Hd + (0.47 - Hd) * warpAmt;
+      const Sref = Math.min(Math.max(R, 0.5), Hd);
+      gl.uniform3f(u.uFish, R, Sref, fishCurve(M * Sref / R));
+    }
     gl.uniform2f(u.uCenter, center[0], center[1]);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
