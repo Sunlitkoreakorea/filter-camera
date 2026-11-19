@@ -1,5 +1,5 @@
-import { FILTERS, WARPS, WARP_PAGES } from './filters.js?v=4';
-import { Renderer } from './renderer.js?v=6';
+import { FILTERS, WARPS, WARP_PAGES } from './filters.js?v=5';
+import { Renderer } from './renderer.js?v=8';
 import { store, newId } from './store.js?v=3';
 
 const $ = s => document.querySelector(s);
