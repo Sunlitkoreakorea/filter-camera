@@ -199,7 +199,7 @@ function closeGrid() {
 }
 $$('.warpbtn').forEach(b => b.addEventListener('click', () => (state.gridOpen ? closeGrid() : openGrid())));
 // 격자를 좌우로 밀면 페이지 넘기기
-let gridSwipe = null, gridSwiped = 0;
+let gridSwipe = null, gridSwiped = -1e9;
 warpsEl.addEventListener('pointerdown', e => { gridSwipe = { x: e.clientX, y: e.clientY }; });
 warpsEl.addEventListener('pointerup', e => {
   if (!gridSwipe) return;
@@ -218,7 +218,8 @@ warpTiles.addEventListener('click', e => {
   const again = w === curWarp();
   if (!again) setWarp(w);
   closeGrid();
-  if (again && w !== 0) toggleAmount('warp', true);
+  // 같은 효과를 다시 누르거나, 어안처럼 mm 로 고르는 효과면 세기 바를 바로 띄움
+  if ((again && w !== 0) || (!again && WARPS[w].mm)) toggleAmount('warp', true);
 });
 
 /* ---------- 세기 바 (색 필터 / 왜곡 공용) ---------- */
@@ -694,6 +695,7 @@ async function openEditor(id) {
   scrollStripTo(state.editFilter, 'auto');
   syncWarpUI();
   syncAmountUI();
+  if (WARPS[state.editWarp].mm) toggleAmount('warp', true);
   layout();
   drawThumbs(bmp, bmpW(bmp), bmpH(bmp), FULL, false);
 }
@@ -718,6 +720,7 @@ function flushEditSave() {
   rec.warp = WARPS[look.warp].id;
   rec.warpAmt = look.warpAmt;
   rec.center = look.center;
+  store.put(rec).catch(console.error);            // 고른 효과는 바로 저장, 사진첩 칸 그림은 뒤따라
   makeThumb(bmp, look).then(async thumb => {
     if (deletedIds.has(rec.id)) return;
     rec.thumb = thumb;
@@ -815,6 +818,24 @@ stage.addEventListener('pointerup', endPtr);
 stage.addEventListener('pointercancel', endPtr);
 stage.addEventListener('contextmenu', e => e.preventDefault());
 
+// 마우스 휠, ↑↓ 키로 세기 조절 (어안은 1mm씩). 위로 = 숫자 커짐
+function nudgeAmount(dir) {
+  const target = curWarp() ? 'warp' : curFilter() ? 'color' : null;
+  if (!target) return;
+  if (amountEl.hidden || state.amtTarget !== target) toggleAmount(target, true);
+  const mm = target === 'warp' && WARPS[curWarp()].mm;
+  amt.value = mm ? clamp(+amt.value + dir, mm[0], mm[1]) : clamp(+amt.value + dir * 5, 0, 100);
+  amt.dispatchEvent(new Event('input'));
+}
+let stageWheel = 0;
+stage.addEventListener('wheel', e => {
+  if (state.gridOpen) return;
+  e.preventDefault();
+  stageWheel += e.deltaY;
+  if (Math.abs(stageWheel) >= 40) { nudgeAmount(stageWheel < 0 ? 1 : -1); stageWheel = 0; }
+}, { passive: false });
+if (!isMobile) amountEl.title = '마우스 휠, ↑↓ 키로도 조절';
+
 /* ---------- 위쪽 버튼 ---------- */
 function applySettingsUI() {
   document.body.classList.toggle('nostrip', !settings.strip);
@@ -845,7 +866,7 @@ $('#bGrid').addEventListener('click', () => {
 
 /* ---------- 키보드 ---------- */
 addEventListener('keydown', e => {
-  if (e.target.matches('input') && e.key !== 'Escape') return;
+  if (e.target.matches?.('input') && e.key !== 'Escape') return;
   if (state.mode === 'album') { if (e.key === 'Escape') setMode('camera'); return; }
   if (state.gridOpen) {
     if (e.key === 'Escape') closeGrid();
@@ -854,8 +875,9 @@ addEventListener('keydown', e => {
   }
   if (e.key === 'ArrowRight') setFilter(curFilter() + 1, 'key');
   else if (e.key === 'ArrowLeft') setFilter(curFilter() - 1, 'key');
+  else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); nudgeAmount(e.key === 'ArrowUp' ? 1 : -1); }
   else if (e.key === 'Escape' && isEdit()) backToAlbum();
-  else if ((e.key === ' ' || e.key === 'Enter') && state.mode === 'camera' && !e.target.closest('button')) {
+  else if ((e.key === ' ' || e.key === 'Enter') && state.mode === 'camera' && !e.target.closest?.('button')) {
     e.preventDefault();
     $('#bShutter').click();
   }
