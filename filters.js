@@ -139,7 +139,7 @@ export const WARPS = [
   { id: 'stretch', name: '늘이기', c: 1 },
   { id: 'mirror', name: '거울', c: 1 },
   { id: 'tunnel', name: '빛의 터널', c: 1 },
-  { id: 'fisheye', name: '어안', c: 1 },
+  { id: 'fisheye', name: '어안', c: 1, mag: [1, 3], def: (4 / 3 - 1) / 2 },   // 세기 바 = 가운데 배수 ×1~×3 (기본 ×1.33 = 처음 모양), CRT 테두리는 고정
   { id: 'ripple', name: '물결', c: 1 },
   { id: 'kaleido', name: '만화경', c: 1 },
   { id: 'mosaic', name: '모자이크' },

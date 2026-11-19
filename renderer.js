@@ -1,5 +1,14 @@
 // WebGL 렌더러: 좌표 비틀기(왜곡) -> 원본 텍스처 -> 3D LUT(색 필터) -> 비네팅/입자 -> 세기 섞기
-import { FILTERS, N, buildLutAtlas } from './filters.js?v=5';
+import { FILTERS, WARPS, N, buildLutAtlas } from './filters.js?v=6';
+
+// 어안 안쪽 3차식 계수: g(0)=0, g'(0)=1/M (가운데 M배), t0=0.45 에서 바깥 식 0.75t+1.1t³ 과 값/기울기가 맞음
+const T0 = 0.45, G0 = 0.75 * T0 + 1.1 * T0 ** 3, G1 = 0.75 + 3.3 * T0 * T0;
+function fishCoef(M) {
+  const a = 1 / M, A = G0 - a * T0, B = G1 - a;
+  const c = (B - 2 * A / T0) / (T0 * T0);
+  const b = (A - c * T0 ** 3) / (T0 * T0);
+  return [a, b, c];
+}
 
 let atlasCache = null;
 const atlas = () => (atlasCache ||= buildLutAtlas());
@@ -34,6 +43,7 @@ uniform vec2 uFrame;    // 짧은 변 = 1 로 맞춘 화면 비율
 uniform float uWarp;
 uniform float uWarpAmt;
 uniform vec2 uCenter;
+uniform vec3 uFish;
 const float N = ${N.toFixed(1)};
 
 vec3 lut(vec3 c) {
@@ -98,8 +108,11 @@ vec2 warp(vec2 o) {
     float R = mix(1.3, 0.22, k);
     if (r > R) q *= R / r;
   } else if (w < 8.5) {                // 어안 (옛 CRT 화면처럼 볼록, 가장자리는 둥근 검정)
+    // 바깥(t >= 0.45)은 처음 식 그대로라 검은 테두리 모양이 고정되고,
+    // 안쪽만 uFish = (a, b, c) 3차식으로 바꿔 가운데 배수(1/a)를 조절한다
     float t = r / (0.5 * length(uFrame));
-    q *= mix(1.0, 0.75 + 1.1 * t * t, k);
+    float g = t < 0.45 ? t * (uFish.x + t * (uFish.y + t * uFish.z)) : t * (0.75 + 1.1 * t * t);
+    if (t > 0.0) q *= g / t;
   } else if (w < 9.5) {                // 물결 (중심에서 퍼지는 동심원)
     if (r > 0.0) q += q / r * (0.022 * k * sin(r * 55.0) * exp(-r * 1.3));
   } else if (w < 10.5) {               // 만화경
@@ -197,7 +210,7 @@ void main() {
   gl_FragColor = vec4(clamp(mix(src, c, uAmount), 0.0, 1.0), 1.0);
 }`;
 
-const UNIFORMS = ['uSrc', 'uMirror', 'uImg', 'uLut', 'uRow', 'uRows', 'uAmount', 'uVig', 'uGrain', 'uSeed', 'uFrame', 'uWarp', 'uWarpAmt', 'uCenter'];
+const UNIFORMS = ['uSrc', 'uMirror', 'uImg', 'uLut', 'uRow', 'uRows', 'uAmount', 'uVig', 'uGrain', 'uSeed', 'uFrame', 'uWarp', 'uWarpAmt', 'uCenter', 'uFish'];
 
 export class Renderer {
   constructor(canvas, { preserve = false } = {}) {
@@ -305,7 +318,12 @@ export class Renderer {
     const m = Math.min(v.w, v.h);
     gl.uniform2f(u.uFrame, v.w / m, v.h / m);
     gl.uniform1f(u.uWarp, warp);
-    gl.uniform1f(u.uWarpAmt, warpAmt);
+    const wd = WARPS[warp];
+    if (wd && wd.mag) {
+      // 어안: 세기 바 = 가운데 배수. 테두리는 고정이라 셰이더에는 늘 '켜짐(1)'으로 넘긴다
+      gl.uniform3f(u.uFish, ...fishCoef(wd.mag[0] + (wd.mag[1] - wd.mag[0]) * warpAmt));
+      gl.uniform1f(u.uWarpAmt, 1);
+    } else gl.uniform1f(u.uWarpAmt, warpAmt);
     gl.uniform2f(u.uCenter, center[0], center[1]);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }

@@ -1,5 +1,5 @@
-import { FILTERS, WARPS, WARP_PAGES } from './filters.js?v=5';
-import { Renderer } from './renderer.js?v=8';
+import { FILTERS, WARPS, WARP_PAGES } from './filters.js?v=6';
+import { Renderer } from './renderer.js?v=9';
 import { store, newId } from './store.js?v=3';
 
 const $ = s => document.querySelector(s);
@@ -218,8 +218,8 @@ warpTiles.addEventListener('click', e => {
   const again = w === curWarp();
   if (!again) setWarp(w);
   closeGrid();
-  // 같은 효과를 다시 누르거나, 어안이면 세기(확대 배율) 바를 바로 띄움
-  if ((again && w !== 0) || (!again && WARPS[w].mag)) toggleAmount('warp', true);
+  // 같은 효과를 한 번 더 누르면 세기 바
+  if (again && w !== 0) toggleAmount('warp', true);
 });
 
 /* ---------- 세기 바 (색 필터 / 왜곡 공용) ---------- */
@@ -695,7 +695,6 @@ async function openEditor(id) {
   scrollStripTo(state.editFilter, 'auto');
   syncWarpUI();
   syncAmountUI();
-  if (WARPS[state.editWarp].mag) toggleAmount('warp', true);
   layout();
   drawThumbs(bmp, bmpW(bmp), bmpH(bmp), FULL, false);
 }
